@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotJunar's Flappy Bird AI</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #87CEEB; color: #000; font-family: Arial, sans-serif; }
+        canvas { background-color: #87CEEB; border: 1px solid #000; }
+        #logs { width: 400px; height: 100px; background-color: #fff; overflow-y: scroll; margin-top: 10px; padding: 5px; box-sizing: border-box; }
+        #chart { width: 400px; height: 200px; margin-top: 10px; }
+        #header { width: 100%; background-color: #333; color: #fff; text-align: center; padding: 10px; position: fixed; top: 0; left: 0; z-index: 10; }
+        #header button { margin-left: 10px; }
+        #leaderboard { width: 400px; margin-top: 10px; }
+        #leaderboardTable { width: 100%; border-collapse: collapse; }
+        #leaderboardTable th, #leaderboardTable td { border: 1px solid #000; padding: 5px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <span>NotJunar's Flappy Bird AI</span>
+        <button onclick="toggleLeaderboard()">Leaderboard</button>
+    </div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <div id="logs"></div>
+    <canvas id="chart"></canvas>
+    <div id="leaderboard" style="display: none;">
+        <h3>Leaderboard</h3>
+        <table id="leaderboardTable">
+            <thead>
+                <tr>
+                    <th>Epoch</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const birdWidth = 30;
+        const birdHeight = 30;
+        const pipeWidth = 50;
+        const pipeGap = 150;
+        const pipeSpeed = 2;
+        const gravity = 0.6;
+        const flapPower = -10;
+        let bird = { x: 50, y: canvas.height / 2, width: birdWidth, height: birdHeight, velocity: 0 };
+        let pipes = [];
+        const qTable = {};
+        const actions = ['FLAP', 'NOOP'];
+        const learningRate = 0.1;
+        const discountFactor = 0.9;
+        const explorationDecay = 0.995;
+        const minExplorationRate = 0.01;
+        const randomnessFactor = 0.1;
+        let explorationRate = 1.0;
+        let score = 0;
+        let epoch = 0;
+        const logs = document.getElementById('logs');
+        const scores = [];
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'Average Score',
+                backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                borderColor: 'rgb(0, 0, 255)',
+                data: []
+            }]
+        };
+        const chartOptions = {
+            scales: {
+                x: { title: { display: true, text: 'Epoch' } },
+                y: { title: { display: true, text: 'Score' }, beginAtZero: true }
+            }
+        };
+        const scoreChart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = 'yellow';
+            ctx.fillRect(bird.x, bird.y, bird.width, bird.height);
+
+            ctx.fillStyle = 'green';
+            pipes.forEach(pipe => {
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.y);
+                ctx.fillRect(pipe.x, pipe.y + pipeGap, pipeWidth, canvas.height - pipe.y - pipeGap);
+            });
+
+            bird.velocity += gravity;
+            bird.y += bird.velocity;
+
+            if (bird.y + bird.height > canvas.height || bird.y < 0 || collision()) {
+                resetGame();
+                return;
+            }
+
+            pipes.forEach(pipe => {
+                pipe.x -= pipeSpeed;
+            });
+            if (pipes.length && pipes[0].x + pipeWidth < 0) {
+                pipes.shift();
+                score++;
+            }
+
+            if (pipes.length === 0 || pipes[pipes.length - 1].x < canvas.width - 200) {
+                const pipeHeight = Math.floor(Math.random() * (canvas.height - pipeGap));
+                pipes.push({ x: canvas.width, y: pipeHeight });
+            }
+        }
+
+        function collision() {
+            return pipes.some(pipe => {
+                return bird.x < pipe.x + pipeWidth &&
+                       bird.x + bird.width > pipe.x &&
+                       (bird.y < pipe.y || bird.y + bird.height > pipe.y + pipeGap);
+            });
+        }
+
+        function resetGame() {
+            scores.push(score);
+            scores.sort((a, b) => b - a); 
+            if (scores.length > 5) scores.length = 5; 
+            updateChart();
+            bird = { x: 50, y: canvas.height / 2, width: birdWidth, height: birdHeight, velocity: 0 };
+            pipes = [];
+            score = 0;
+            epoch++;
+            logs.innerHTML += `Epoch: ${epoch}, Score: ${score}<br>`;
+            logs.scrollTop = logs.scrollHeight;
+            updateLeaderboard();
+        }
+
+        function getState() {
+            const pipe = pipes[0] || { x: canvas.width, y: canvas.height / 2 };
+            return `${bird.y}_${bird.velocity}_${pipe.x}_${pipe.y}`;
+        }
+
+        function chooseAction(state) {
+            if (Math.random() < randomnessFactor) return actions[Math.floor(Math.random() * actions.length)];
+            if (!qTable[state]) qTable[state] = { FLAP: 0, NOOP: 0 };
+            let maxQ = -Infinity;
+            let bestAction = 'NOOP';
+            for (const action of actions) {
+                if (qTable[state][action] > maxQ) {
+                    maxQ = qTable[state][action];
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        function updateQTable(state, action, reward, nextState) {
+            if (!qTable[state]) qTable[state] = { FLAP: 0, NOOP: 0 };
+            if (!qTable[nextState]) qTable[nextState] = { FLAP: 0, NOOP: 0 };
+            const maxQNext = Math.max(...Object.values(qTable[nextState]));
+            qTable[state][action] = qTable[state][action] + learningRate * (reward + discountFactor * maxQNext - qTable[state][action]);
+        }
+
+        function moveAI() {
+            const state = getState();
+            const action = chooseAction(state);
+            if (action === 'FLAP') {
+                bird.velocity = flapPower;
+            }
+            draw();
+            const newState = getState();
+            const reward = bird.y + bird.height > canvas.height || bird.y < 0 || collision() ? -1 : 0.1;
+            updateQTable(state, action, reward, newState);
+            if (reward === -1) resetGame(); 
+            explorationRate = Math.max(minExplorationRate, explorationRate * explorationDecay);
+        }
+
+        function toggleLeaderboard() {
+            const leaderboard = document.getElementById('leaderboard');
+            leaderboard.style.display = leaderboard.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updateLeaderboard() {
+            const tableBody = document.getElementById('leaderboardTable').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = ''; 
+            scores.forEach((score, index) => {
+                const newRow = tableBody.insertRow();
+                const rankCell = newRow.insertCell(0);
+                const scoreCell = newRow.insertCell(1);
+                rankCell.textContent = index + 1;
+                scoreCell.textContent = score;
+            });
+        }
+
+        function updateChart() {
+            chartData.labels.push(epoch);
+            chartData.datasets[0].data.push(scores[0] || 0);
+            scoreChart.update();
+        }
+
+        setInterval(() => {
+            moveAI();
+        }, 100);
+    </script>
+</body>
+</html>
