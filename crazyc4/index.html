@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crazy AI Playing Connect 4</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #000; color: #fff; font-family: Arial, sans-serif; }
+        canvas { background-color: #000; border: 1px solid #fff; }
+        #logs { width: 400px; height: 100px; background-color: #111; overflow-y: scroll; margin-top: 10px; padding: 5px; box-sizing: border-box; }
+        #chart { width: 400px; height: 200px; margin-top: 10px; }
+        header { font-size: 24px; margin-top: 10px; }
+        .discord-button { margin-left: 10px; }
+        .board { display: grid; grid-template-columns: repeat(7, 50px); grid-template-rows: repeat(6, 50px); gap: 1px; }
+        .cell { width: 50px; height: 50px; background-color: #111; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; }
+        .cell.red { background-color: red; }
+        .cell.yellow { background-color: yellow; }
+    </style>
+</head>
+<body>
+    <header>
+        NotJunar's Connect Four AI
+        <a class="discord-button" href="https://dsc.gg/jnreborn" target="_blank">Discord</a>
+    </header>
+    <div class="board" id="gameBoard">
+        <div class="cell" data-index="0"></div>
+        <div class="cell" data-index="1"></div>
+        <div class="cell" data-index="2"></div>
+        <div class="cell" data-index="3"></div>
+        <div class="cell" data-index="4"></div>
+        <div class="cell" data-index="5"></div>
+        <div class="cell" data-index="6"></div>
+        <div class="cell" data-index="7"></div>
+        <div class="cell" data-index="8"></div>
+        <div class="cell" data-index="9"></div>
+        <div class="cell" data-index="10"></div>
+        <div class="cell" data-index="11"></div>
+        <div class="cell" data-index="12"></div>
+        <div class="cell" data-index="13"></div>
+        <div class="cell" data-index="14"></div>
+        <div class="cell" data-index="15"></div>
+        <div class="cell" data-index="16"></div>
+        <div class="cell" data-index="17"></div>
+        <div class="cell" data-index="18"></div>
+        <div class="cell" data-index="19"></div>
+        <div class="cell" data-index="20"></div>
+        <div class="cell" data-index="21"></div>
+        <div class="cell" data-index="22"></div>
+        <div class="cell" data-index="23"></div>
+        <div class="cell" data-index="24"></div>
+        <div class="cell" data-index="25"></div>
+        <div class="cell" data-index="26"></div>
+        <div class="cell" data-index="27"></div>
+        <div class="cell" data-index="28"></div>
+        <div class="cell" data-index="29"></div>
+        <div class="cell" data-index="30"></div>
+        <div class="cell" data-index="31"></div>
+        <div class="cell" data-index="32"></div>
+        <div class="cell" data-index="33"></div>
+        <div class="cell" data-index="34"></div>
+        <div class="cell" data-index="35"></div>
+        <div class="cell" data-index="36"></div>
+        <div class="cell" data-index="37"></div>
+        <div class="cell" data-index="38"></div>
+        <div class="cell" data-index="39"></div>
+        <div class="cell" data-index="40"></div>
+        <div class="cell" data-index="41"></div>
+    </div>
+    <div id="logs"></div>
+    <canvas id="chart"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const board = document.getElementById('gameBoard');
+        const cells = board.getElementsByClassName('cell');
+        const logs = document.getElementById('logs');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const qTable = {};
+        const columns = 7;
+        const rows = 6;
+        const actions = Array.from({ length: columns }, (_, i) => i);
+        const learningRate = 0.1;
+        const discountFactor = 0.9;
+        const explorationDecay = 0.995;
+        const minExplorationRate = 0.01;
+        const randomnessFactor = 0.1;
+        let explorationRate = 1.0;
+        let epoch = 0;
+        let scores = [];
+        let currentPlayer = 'R';
+        let boardState = Array(columns * rows).fill(null);
+        let gameActive = true;
+
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'AI Wins',
+                backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                borderColor: 'rgb(0, 0, 255)',
+                data: []
+            }]
+        };
+        const chartOptions = {
+            scales: {
+                x: { title: { display: true, text: 'Epoch' } },
+                y: { title: { display: true, text: 'Wins' }, beginAtZero: true }
+            }
+        };
+        const scoreChart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        function getState() {
+            return boardState.join('');
+        }
+
+        function chooseAction(state) {
+            if (Math.random() < randomnessFactor) return actions[Math.floor(Math.random() * actions.length)];
+            if (!qTable[state]) qTable[state] = Array(columns).fill(0);
+            let maxQ = -Infinity;
+            let bestAction = actions[0];
+            for (const action of actions) {
+                if (qTable[state][action] > maxQ) {
+                    maxQ = qTable[state][action];
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        function updateQTable(state, action, reward, nextState) {
+            if (!qTable[state]) qTable[state] = Array(columns).fill(0);
+            if (!qTable[nextState]) qTable[nextState] = Array(columns).fill(0);
+            const maxQNext = Math.max(...qTable[nextState]);
+            qTable[state][action] = qTable[state][action] + learningRate * (reward + discountFactor * maxQNext - qTable[state][action]);
+        }
+
+        function drawBoard() {
+            for (let i = 0; i < cells.length; i++) {
+                cells[i].className = `cell ${boardState[i]}`;
+            }
+        }
+
+        function checkWinner() {
+            const winPatterns = [
+                ...Array.from({ length: rows }, (_, row) => Array.from({ length: columns - 3 }, (_, col) => [col + row * columns, col + 1 + row * columns, col + 2 + row * columns, col + 3 + row * columns])),
+                ...Array.from({ length: columns }, (_, col) => Array.from({ length: rows - 3 }, (_, row) => [col + row * columns, col + (row + 1) * columns, col + (row + 2) * columns, col + (row + 3) * columns])),
+                ...Array.from({ length: rows - 3 }, (_, row) => Array.from({ length: columns - 3 }, (_, col) => [col + row * columns, col + 1 + (row + 1) * columns, col + 2 + (row + 2) * columns, col + 3 + (row + 3) * columns])),
+                ...Array.from({ length: rows - 3 }, (_, row) => Array.from({ length: columns - 3 }, (_, col) => [col + (row + 3) * columns, col + 1 + (row + 2) * columns, col + 2 + (row + 1) * columns, col + 3 + row * columns]))
+            ];
+
+            for (const pattern of winPatterns) {
+                const [a, b, c, d] = pattern;
+                if (boardState[a] && boardState[a] === boardState[b] && boardState[a] === boardState[c] && boardState[a] === boardState[d]) {
+                    return boardState[a];
+                }
+            }
+
+            if (!boardState.includes(null)) return 'T';
+
+            return null;
+        }
+
+        function aiMove() {
+            const state = getState();
+            const action = chooseAction(state);
+            let row;
+            for (row = rows - 1; row >= 0; row--) {
+                if (boardState[action + row * columns] === null) break;
+            }
+            if (row < 0) return;
+            const index = action + row * columns;
+            boardState[index] = 'Y';
+            drawBoard();
+            const winner = checkWinner();
+            if (winner) {
+                if (winner === 'Y') logs.innerHTML += 'AI wins!\n';
+                else if (winner === 'T') logs.innerHTML += 'It\'s a tie!\n';
+                else logs.innerHTML += 'Player wins!\n';
+                gameActive = false;
+                scores.push(epoch);
+                chartData.labels.push(epoch++);
+                chartData.datasets[0].data.push(scores.length);
+                scoreChart.update();
+                return;
+            }
+            const reward = winner === 'Y' ? 1 : 0;
+            updateQTable(state, action, reward, getState());
+            randomnessFactor = Math.max(minExplorationRate, explorationRate * explorationDecay);
+        }
+
+        function playerMove(event) {
+            if (!gameActive) return;
+            const index = event.target.dataset.index;
+            let row;
+            for (row = rows - 1; row >= 0; row--) {
+                if (boardState[index + row * columns] === null) break;
+            }
+            if (row < 0) return;
+            boardState[index + row * columns] = 'R';
+            drawBoard();
+            const winner = checkWinner();
+            if (winner) {
+                if (winner === 'R') logs.innerHTML += 'Player wins!\n';
+                else if (winner === 'T') logs.innerHTML += 'It\'s a tie!\n';
+                else logs.innerHTML += 'AI wins!\n';
+                gameActive = false;
+                scores.push(epoch);
+                chartData.labels.push(epoch++);
+                chartData.datasets[0].data.push(scores.length);
+                scoreChart.update();
+                return;
+            }
+            aiMove();
+        }
+
+        function resetGame() {
+            boardState.fill(null);
+            drawBoard();
+            gameActive = true;
+            logs.innerHTML = '';
+        }
+
+        board.addEventListener('click', playerMove);
+        resetGame();
+    </script>
+</body>
+</html>
