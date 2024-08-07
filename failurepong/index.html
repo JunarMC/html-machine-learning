@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Artifical Failure | Pong</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #000; color: #fff; font-family: Arial, sans-serif; }
+        canvas { background-color: #000; border: 1px solid #fff; }
+        #logs { width: 400px; height: 100px; background-color: #111; overflow-y: scroll; margin-top: 10px; padding: 5px; box-sizing: border-box; }
+        #chart { width: 400px; height: 200px; margin-top: 10px; }
+        header { font-size: 24px; margin-top: 10px; }
+        .discord-button { margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <header>
+        NotJunar's Pong AI
+        <a class="discord-button" href="https://dsc.gg/jnreborn" target="_blank">Discord</a>
+    </header>
+    <canvas id="gameCanvas" width="800" height="400"></canvas>
+    <div id="logs"></div>
+    <canvas id="chart"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const paddleWidth = 10;
+        const paddleHeight = 100;
+        const ballSize = 10;
+        let playerPaddle = { x: 20, y: canvas.height / 2 - paddleHeight / 2 };
+        let aiPaddle = { x: canvas.width - 30, y: canvas.height / 2 - paddleHeight / 2 };
+        let ball = { x: canvas.width / 2, y: canvas.height / 2, dx: 2, dy: 2 };
+        let scorePlayer = 0;
+        let scoreAI = 0;
+        const qTable = {};
+        const actions = ['UP', 'DOWN'];
+        const learningRate = 0.1;
+        const discountFactor = 0.9;
+        const explorationDecay = 0.995;
+        const minExplorationRate = 0.01;
+        const randomnessFactor = 0.1;
+        let explorationRate = 1.0;
+        let epoch = 0;
+        const logs = document.getElementById('logs');
+        const scores = [];
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'AI Score',
+                backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                borderColor: 'rgb(0, 0, 255)',
+                data: []
+            }]
+        };
+        const chartOptions = {
+            scales: {
+                x: { title: { display: true, text: 'Epoch' } },
+                y: { title: { display: true, text: 'Score' }, beginAtZero: true }
+            }
+        };
+        const scoreChart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        function getState() {
+            return `${ball.x}_${ball.y}_${ball.dx}_${ball.dy}_${aiPaddle.y}`;
+        }
+
+        function chooseAction(state) {
+            if (Math.random() < randomnessFactor) return actions[Math.floor(Math.random() * actions.length)];
+            if (!qTable[state]) qTable[state] = { UP: 0, DOWN: 0 };
+            let maxQ = -Infinity;
+            let bestAction = 'UP';
+            for (const action of actions) {
+                if (qTable[state][action] > maxQ) {
+                    maxQ = qTable[state][action];
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        function updateQTable(state, action, reward, nextState) {
+            if (!qTable[state]) qTable[state] = { UP: 0, DOWN: 0 };
+            if (!qTable[nextState]) qTable[nextState] = { UP: 0, DOWN: 0 };
+            const maxQNext = Math.max(...Object.values(qTable[nextState]));
+            qTable[state][action] = qTable[state][action] + learningRate * (reward + discountFactor * maxQNext - qTable[state][action]);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(playerPaddle.x, playerPaddle.y, paddleWidth, paddleHeight);
+            ctx.fillRect(aiPaddle.x, aiPaddle.y, paddleWidth, paddleHeight);
+            ctx.fillRect(ball.x, ball.y, ballSize, ballSize);
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+            if (ball.y + ballSize > canvas.height || ball.y < 0) ball.dy *= -1;
+            if (ball.x < 0) {
+                scoreAI++;
+                resetBall();
+            }
+            if (ball.x + ballSize > canvas.width) {
+                scorePlayer++;
+                resetBall();
+            }
+            if (ball.x < playerPaddle.x + paddleWidth && ball.y + ballSize > playerPaddle.y && ball.y < playerPaddle.y + paddleHeight) ball.dx *= -1;
+            if (ball.x + ballSize > aiPaddle.x && ball.y + ballSize > aiPaddle.y && ball.y < aiPaddle.y + paddleHeight) ball.dx *= -1;
+            const aiState = getState();
+            const aiAction = chooseAction(aiState);
+            if (aiAction === 'UP' && aiPaddle.y > 0) aiPaddle.y -= 4;
+            if (aiAction === 'DOWN' && aiPaddle.y < canvas.height - paddleHeight) aiPaddle.y += 4;
+            if (ball.x < canvas.width / 2) {
+                if (aiPaddle.y + paddleHeight / 2 < ball.y + ballSize / 2) aiPaddle.y += 4;
+                if (aiPaddle.y + paddleHeight / 2 > ball.y + ballSize / 2) aiPaddle.y -= 4;
+            }
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = canvas.height / 2;
+            ball.dx = Math.random() < 0.5 ? 2 : -2;
+            ball.dy = Math.random() < 0.5 ? 2 : -2;
+        }
+
+        function moveAI() {
+            draw();
+            const reward = ball.x < canvas.width / 2 ? -0.1 : (ball.x + ballSize > aiPaddle.x && ball.y + ballSize > aiPaddle.y && ball.y < aiPaddle.y + paddleHeight ? 1 : -0.1);
+            const nextState = getState();
+            updateQTable(getState(), chooseAction(getState()), reward, nextState);
+            explorationRate = Math.max(minExplorationRate, explorationRate * explorationDecay);
+        }
+
+        setInterval(() => {
+            moveAI();
+        }, 50);
+    </script>
+</body>
+</html>
