@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotJunar's Snake AI</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #000; color: #fff; font-family: Arial, sans-serif; }
+        canvas { background-color: #000; border: 1px solid #fff; }
+        #logs { width: 400px; height: 100px; background-color: #111; overflow-y: scroll; margin-top: 10px; padding: 5px; box-sizing: border-box; }
+        #chart { width: 400px; height: 200px; margin-top: 10px; }
+        #header { width: 100%; background-color: #333; color: #fff; text-align: center; padding: 10px; position: fixed; top: 0; left: 0; z-index: 10; }
+        #header button { margin-left: 10px; }
+        #leaderboard { width: 400px; margin-top: 10px; }
+        #leaderboardTable { width: 100%; border-collapse: collapse; }
+        #leaderboardTable th, #leaderboardTable td { border: 1px solid #fff; padding: 5px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <span>NotJunar's Snake AI</span>
+        <button onclick="toggleLeaderboard()">Leaderboard</button>
+    </div>
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <div id="logs"></div>
+    <canvas id="chart"></canvas>
+    <div id="leaderboard" style="display: none;">
+        <h3>Leaderboard</h3>
+        <table id="leaderboardTable">
+            <thead>
+                <tr>
+                    <th>Epoch</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const box = 20;
+        let snake = [{ x: Math.floor(canvas.width / 2 / box) * box, y: Math.floor(canvas.height / 2 / box) * box }];
+        let direction = 'RIGHT';
+        let food = { x: getRandomCoordinate(), y: getRandomCoordinate() };
+        const qTable = {};
+        const actions = ['LEFT', 'UP', 'RIGHT', 'DOWN'];
+        const learningRate = 0.1;
+        const discountFactor = 0.9;
+        const explorationDecay = 0.995;
+        const minExplorationRate = 0.01;
+        const randomnessFactor = 0.1;
+        let explorationRate = 1.0;
+        let score = 0;
+        let epoch = 0;
+        const logs = document.getElementById('logs');
+        const scores = [];
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'Average Score',
+                backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                borderColor: 'rgb(0, 0, 255)',
+                data: []
+            }]
+        };
+        const chartOptions = {
+            scales: {
+                x: { title: { display: true, text: 'Epoch' } },
+                y: { title: { display: true, text: 'Score' }, beginAtZero: true }
+            }
+        };
+        const scoreChart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        function getRandomCoordinate() {
+            return Math.floor(Math.random() * (canvas.width / box)) * box;
+        }
+
+        function updateChart() {
+            const windowSize = 50;
+            const numWindows = Math.floor(scores.length / windowSize);
+            const averages = [];
+            for (let i = 0; i < numWindows; i++) {
+                const windowScores = scores.slice(i * windowSize, (i + 1) * windowSize);
+                const average = windowScores.reduce((a, b) => a + b, 0) / windowScores.length;
+                averages.push(average);
+            }
+            chartData.labels = Array.from({ length: numWindows }, (_, i) => (i + 1) * windowSize);
+            chartData.datasets[0].data = averages;
+            scoreChart.update();
+        }
+
+        function getState() {
+            const head = snake[0];
+            const direction = getDirection();
+            return `${head.x}_${head.y}_${food.x}_${food.y}_${direction}`;
+        }
+
+        function getDirection() {
+            if (direction === 'LEFT') return 0;
+            if (direction === 'UP') return 1;
+            if (direction === 'RIGHT') return 2;
+            if (direction === 'DOWN') return 3;
+        }
+
+        function chooseAction(state) {
+            if (Math.random() < randomnessFactor) return actions[Math.floor(Math.random() * actions.length)];
+            if (!qTable[state]) qTable[state] = { LEFT: 0, UP: 0, RIGHT: 0, DOWN: 0 };
+            let maxQ = -Infinity;
+            let bestAction = 'RIGHT';
+            for (const action of actions) {
+                if (qTable[state][action] > maxQ) {
+                    maxQ = qTable[state][action];
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        function updateQTable(state, action, reward, nextState) {
+            if (!qTable[state]) qTable[state] = { LEFT: 0, UP: 0, RIGHT: 0, DOWN: 0 };
+            if (!qTable[nextState]) qTable[nextState] = { LEFT: 0, UP: 0, RIGHT: 0, DOWN: 0 };
+            const maxQNext = Math.max(...Object.values(qTable[nextState]));
+            qTable[state][action] = qTable[state][action] + learningRate * (reward + discountFactor * maxQNext - qTable[state][action]);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < snake.length; i++) {
+                ctx.fillStyle = i === 0 ? 'green' : 'white';
+                ctx.fillRect(snake[i].x, snake[i].y, box, box);
+            }
+            ctx.fillStyle = 'red';
+            ctx.fillRect(food.x, food.y, box, box);
+            let snakeX = snake[0].x;
+            let snakeY = snake[0].y;
+            if (direction === 'LEFT') snakeX -= box;
+            if (direction === 'UP') snakeY -= box;
+            if (direction === 'RIGHT') snakeX += box;
+            if (direction === 'DOWN') snakeY += box;
+            if (snakeX === food.x && snakeY === food.y) {
+                score++;
+                snake.push({});
+                food = { x: getRandomCoordinate(), y: getRandomCoordinate() };
+            } else {
+                snake.pop();
+            }
+            const newHead = { x: snakeX, y: snakeY };
+            if (snakeX < 0 || snakeY < 0 || snakeX >= canvas.width || snakeY >= canvas.height || collision(newHead, snake)) {
+                resetGame();
+                return;
+            }
+            snake.unshift(newHead);
+        }
+
+        function collision(head, array) {
+            for (let i = 0; i < array.length; i++) {
+                if (head.x === array[i].x && head.y === array[i].y) return true;
+            }
+            return false;
+        }
+
+        function resetGame() {
+            scores.push(score);
+            scores.sort((a, b) => b - a); 
+            if (scores.length > 5) scores.length = 5;
+            updateChart();
+            snake = [{ x: Math.floor(canvas.width / 2 / box) * box, y: Math.floor(canvas.height / 2 / box) * box }];
+            direction = 'RIGHT';
+            score = 0;
+            food = { x: getRandomCoordinate(), y: getRandomCoordinate() };
+            epoch++;
+            logs.innerHTML += `Epoch: ${epoch}, Score: ${score}<br>`;
+            logs.scrollTop = logs.scrollHeight;
+            updateLeaderboard();
+        }
+
+        function moveAI() {
+            const state = getState();
+            const action = chooseAction(state);
+            direction = action;
+            draw();
+            const newState = getState();
+            const reward = (snake[0].x === food.x && snake[0].y === food.y) ? 1 : -0.1;
+            updateQTable(state, action, reward, newState);
+            if (reward > 0) resetGame(); 
+            explorationRate = Math.max(minExplorationRate, explorationRate * explorationDecay);
+        }
+
+        function toggleLeaderboard() {
+            const leaderboard = document.getElementById('leaderboard');
+            leaderboard.style.display = leaderboard.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updateLeaderboard() {
+            const tableBody = document.getElementById('leaderboardTable').getElementsByTagName('tbody')[0];
+            tableBody.innerHTML = '';
+            scores.forEach((score, index) => {
+                const newRow = tableBody.insertRow();
+                const rankCell = newRow.insertCell(0);
+                const scoreCell = newRow.insertCell(1);
+                rankCell.textContent = index + 1;
+                scoreCell.textContent = score;
+            });
+        }
+
+        function loadExampleData() {
+            const exampleData = [
+                { state: '200_200_240_240_2', action: 'RIGHT', reward: 1, nextState: '220_200_240_240_2' },
+                { state: '220_200_240_240_2', action: 'DOWN', reward: -0.1, nextState: '220_220_240_240_3' },
+                { state: '220_220_240_240_3', action: 'LEFT', reward: 1, nextState: '200_220_240_240_0' },
+            ];
+            exampleData.forEach(data => {
+                if (!qTable[data.state]) qTable[data.state] = { LEFT: 0, UP: 0, RIGHT: 0, DOWN: 0 };
+                if (!qTable[data.nextState]) qTable[data.nextState] = { LEFT: 0, UP: 0, RIGHT: 0, DOWN: 0 };
+                const maxQNext = Math.max(...Object.values(qTable[data.nextState]));
+                qTable[data.state][data.action] = qTable[data.state][data.action] + learningRate * (data.reward + discountFactor * maxQNext - qTable[data.state][data.action]);
+            });
+        }
+
+        loadExampleData();
+        setInterval(() => {
+            moveAI();
+        }, 50);
+    </script>
+</body>
+</html>
