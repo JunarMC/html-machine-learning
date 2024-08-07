@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Play With Stupid AI RN</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; align-items: center; background-color: #000; color: #fff; font-family: Arial, sans-serif; }
+        canvas { background-color: #000; border: 1px solid #fff; }
+        #logs { width: 400px; height: 100px; background-color: #111; overflow-y: scroll; margin-top: 10px; padding: 5px; box-sizing: border-box; }
+        #chart { width: 400px; height: 200px; margin-top: 10px; }
+        header { font-size: 24px; margin-top: 10px; }
+        .discord-button { margin-left: 10px; }
+        .board { display: grid; grid-template-columns: repeat(3, 100px); grid-template-rows: repeat(3, 100px); gap: 1px; }
+        .cell { width: 100px; height: 100px; background-color: #111; display: flex; align-items: center; justify-content: center; font-size: 48px; cursor: pointer; }
+        .cell.x { color: #0f0; }
+        .cell.o { color: #f00; }
+    </style>
+</head>
+<body>
+    <header>
+        NotJunar's Tic-Tac-Toe AI
+        <a class="discord-button" href="https://dsc.gg/jnreborn" target="_blank">Discord</a>
+    </header>
+    <div class="board" id="gameBoard">
+        <div class="cell" data-index="0"></div>
+        <div class="cell" data-index="1"></div>
+        <div class="cell" data-index="2"></div>
+        <div class="cell" data-index="3"></div>
+        <div class="cell" data-index="4"></div>
+        <div class="cell" data-index="5"></div>
+        <div class="cell" data-index="6"></div>
+        <div class="cell" data-index="7"></div>
+        <div class="cell" data-index="8"></div>
+    </div>
+    <div id="logs"></div>
+    <canvas id="chart"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const board = document.getElementById('gameBoard');
+        const cells = board.getElementsByClassName('cell');
+        const logs = document.getElementById('logs');
+        const chartCanvas = document.getElementById('chart').getContext('2d');
+        const qTable = {};
+        const actions = Array.from({ length: 9 }, (_, i) => i);
+        const learningRate = 0.1;
+        const discountFactor = 0.9;
+        const explorationDecay = 0.995;
+        const minExplorationRate = 0.01;
+        const randomnessFactor = 0.1;
+        let explorationRate = 1.0;
+        let epoch = 0;
+        let scores = [];
+        let currentPlayer = 'X';
+        let boardState = Array(9).fill(null);
+        let gameActive = true;
+
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'AI Wins',
+                backgroundColor: 'rgba(0, 0, 255, 0.5)',
+                borderColor: 'rgb(0, 0, 255)',
+                data: []
+            }]
+        };
+        const chartOptions = {
+            scales: {
+                x: { title: { display: true, text: 'Epoch' } },
+                y: { title: { display: true, text: 'Wins' }, beginAtZero: true }
+            }
+        };
+        const scoreChart = new Chart(chartCanvas, {
+            type: 'line',
+            data: chartData,
+            options: chartOptions
+        });
+
+        function getState() {
+            return boardState.join('');
+        }
+
+        function chooseAction(state) {
+            if (Math.random() < randomnessFactor) return actions[Math.floor(Math.random() * actions.length)];
+            if (!qTable[state]) qTable[state] = Array(9).fill(0);
+            let maxQ = -Infinity;
+            let bestAction = actions[0];
+            for (const action of actions) {
+                if (qTable[state][action] > maxQ) {
+                    maxQ = qTable[state][action];
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        function updateQTable(state, action, reward, nextState) {
+            if (!qTable[state]) qTable[state] = Array(9).fill(0);
+            if (!qTable[nextState]) qTable[nextState] = Array(9).fill(0);
+            const maxQNext = Math.max(...qTable[nextState]);
+            qTable[state][action] = qTable[state][action] + learningRate * (reward + discountFactor * maxQNext - qTable[state][action]);
+        }
+
+        function drawBoard() {
+            for (let i = 0; i < cells.length; i++) {
+                cells[i].textContent = boardState[i];
+                cells[i].className = `cell ${boardState[i]}`;
+            }
+        }
+
+        function checkWinner() {
+            const winPatterns = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], 
+                [0, 3, 6], [1, 4, 7], [2, 5, 8], 
+                [0, 4, 8], [2, 4, 6] 
+            ];
+            for (const pattern of winPatterns) {
+                const [a, b, c] = pattern;
+                if (boardState[a] && boardState[a] === boardState[b] && boardState[a] === boardState[c]) {
+                    return boardState[a];
+                }
+            }
+            return boardState.includes(null) ? null : 'Tie';
+        }
+
+        function handleClick(e) {
+            if (!gameActive) return;
+            const index = e.target.dataset.index;
+            if (boardState[index] || currentPlayer !== 'X') return;
+            boardState[index] = 'X';
+            drawBoard();
+            const winner = checkWinner();
+            if (winner) {
+                logs.innerHTML += `Game Over: ${winner} wins!<br>`;
+                if (winner === 'X') scores.push(1);
+                updateChart();
+                epoch++;
+                logs.innerHTML += `Epoch: ${epoch}<br>`;
+                logs.scrollTop = logs.scrollHeight;
+                gameActive = false;
+                return;
+            }
+            const aiAction = chooseAction(getState());
+            boardState[aiAction] = 'O';
+            drawBoard();
+            const nextWinner = checkWinner();
+            if (nextWinner) {
+                logs.innerHTML += `Game Over: ${nextWinner} wins!<br>`;
+                if (nextWinner === 'O') scores.push(0);
+                updateChart();
+                epoch++;
+                logs.innerHTML += `Epoch: ${epoch}<br>`;
+                logs.scrollTop = logs.scrollHeight;
+                gameActive = false;
+                return;
+            }
+            const reward = winner === 'O' ? 1 : -0.1;
+            updateQTable(getState(), aiAction, reward, getState());
+            explorationRate = Math.max(minExplorationRate, explorationRate * explorationDecay);
+        }
+
+        function updateChart() {
+            const windowSize = 50;
+            const numWindows = Math.floor(scores.length / windowSize);
+            const averages = [];
+            for (let i = 0; i < numWindows; i++) {
+                const windowScores = scores.slice(i * windowSize, (i + 1) * windowSize);
+                const average = windowScores.reduce((a, b) => a + b, 0) / windowScores.length;
+                averages.push(average);
+            }
+            chartData.labels = Array.from({ length: numWindows }, (_, i) => (i + 1) * windowSize);
+            chartData.datasets[0].data = averages;
+            scoreChart.update();
+        }
+
+        function resetGame() {
+            boardState = Array(9).fill(null);
+            currentPlayer = 'X';
+            gameActive = true;
+            drawBoard();
+        }
+
+        board.addEventListener('click', handleClick);
+        resetGame();
+    </script>
+</body>
+</html>
