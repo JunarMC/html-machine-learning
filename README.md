@@ -3,7 +3,7 @@
 
 # AI Games Showcase
 
-Welcome to the AI Games Showcase! This project features various classic games enhanced with artificial intelligence. Explore and experiment with how AI can be applied to different types of games, from Snake to Connect Four.
+Welcome to the Artifical Failure Showcase! This project features various classic games dumbed with artificial intelligence. Explore and experiment with how AI can be applied to different types of games, from Snake to Connect Four.
 
 ## Project Overview
 
@@ -28,7 +28,7 @@ You can view the live versions of the games on the following URLs:
 ## Features
 
 - **Modern UI**: Each game has a clean and modern interface with a consistent style.
-- **AI Integration**: Games feature AI components that use reinforcement learning to improve performance.
+- **AI Integration**: Games feature AI components that use reinforcement learning to disprove performance.
 - **Leaderboard**: Tracks and displays top scores for each game.
 - **Charts**: Visualize AI performance and learning progress over epochs.
 
