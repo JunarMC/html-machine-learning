@@ -66,4 +66,4 @@ Thank you for visiting the AI Games Showcase!
 
 ---
 
-Feel free to modify any sections according to your needs!
+Discord: [Discord](https://dsc.gg/jnreborn)
